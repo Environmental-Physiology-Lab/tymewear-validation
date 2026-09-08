@@ -1,0 +1,562 @@
+---
+title: Tymewear-repository
+subtitile: Report of Results & Figures
+author:
+    name: Jem I Arnold [{{< fa brands github >}}](https://github.com/jemarnold/mnirs){target=\"_blank\"} [{{< fa brands linkedin >}}](https://www.linkedin.com/in/jem--arnold/){target=\"_blank\"} [{{< ai researchgate >}}](https://researchgate.net/profile/Jem-Arnold){target=\"_blank\"} [{{< ai orcid >}}](https://orcid.org/0000-0003-3908-9447){target=\"_blank\"}
+    email: jem@jemarnold.ca
+    affiliation:
+        name: School of Kinesiology, The University of British Columbia, Vancouver, BC, Canada
+date: last-modified
+format:
+    html:
+        self-contained: true
+        toc: true
+        code-fold: true
+        other-links: 
+            - text: Github 
+              href: temp
+            - text: OSF
+              href: temp
+execute:
+    echo: true
+    message: false
+    warning: false
+    dpi: 300
+    fig-width: 8.66
+    fig-asp: 0.5
+    fig-align: center
+    out-width: "100%"
+knitr:
+    opts_chunk: 
+        fig.path: "figures/"
+---
+
+```{r}
+#| label: setup
+#| code-summary: "Show setup code"
+
+library(targets)
+library(tibble)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+library(ggpubr)
+library(mnirs)
+
+theme_set(theme_mnirs())
+
+## manuscript figures are written outside this repository
+fig_path <- file.path(Sys.getenv("UBC_PATH"), "Tymewear", "Figures")
+```
+
+::: {.callout-note}
+## Methods decisions
+
+* Breath-by-breath time-series synchronised with cross-correlation for each interval.
+
+* Local outliers removed with 30-sec rolling window.
+
+* Smooth/binning method: **bin = 10** sec.
+
+* 5-minute interval plus 60-sec recovery after end.
+
+* Four participants (four of the six women) required shortening the strap. Visual clustering of these four participants justified omitting them from VE, but included for RR.
+
+* Note: terminology for respiratory frequency/breathing rate is *inconsistent* throughout this document: **RR**, **BR**, or the manuscript version ***f*~R~** are used interchangeably.
+
+
+:::
+
+## Figure 1: Descriptive plots
+
+* Representative *Interval 4* shown for all participants.
+
+### RR
+
+```{r}
+#| label: desc-RR
+#| code-summary: "Show figure code"
+#| fig-asp: 1
+
+tar_read(desc_RR_plot)
+```
+
+
+### VE
+
+* Excluded participants highlighted in red.
+
+```{r}
+#| label: desc-VE
+#| code-summary: "Show figure code"
+#| fig-asp: 1
+
+tar_read(desc_VE_plot)
+```
+
+## MAE & MAPE
+
+Obsolete, superseded by rmcorr and Bland-Altman below.
+
+* `cv_between_devices` is the typical within-participant percentage disagreement between paired measurements.
+
+* `cv_each_device` is the share attributable to either device, assuming both have equal and independent measurement error.
+
+* `mean_bias` is the average percentage by which Parvo differs from Tymewear positive means Parvo is higher.
+
+```{r}
+#| label: MAE-MAPE
+
+list(
+    "RR" = tar_read(error_summary_RR),
+    "VE" = tar_read(error_summary_VE),
+    "VE (ids excluded)" = tar_read(error_summary_VE_excl)
+) |>
+    list_rbind(names_to = "measure") |>
+    knitr::kable(digits = 1)
+```
+
+## Sensitivity analysis for smoothing methods
+
+* Four participants excluded for VE only.
+
+* BxB (width = 1) resulting in misaligned breaths, overestimates error.
+
+* bin = 10 sec chosen as a compromise.
+
+```{r}
+#| label: smooth-sensitivity-plot
+#| code-summary: "Show figure code"
+#| fig-asp: 1
+
+exclude_ids <- c("TW04", "TW05", "BP12", "BP19")
+
+df <- readRDS("results.rds") |>
+    select(id, stage, smooth, time, br, ve, RR, VE)
+
+df_list <- group_split(df, smooth)
+
+yvars <- c("VE", "RR")
+
+agree_df <- lapply(yvars, \(yvar) {
+    lapply(df_list, \(.df) {
+        if(yvar == "VE") .df <- filter_out(.df, id %in% exclude_ids)
+
+        agree_table <- SimplyAgree::agreement_limit(
+            .df,
+            x = ifelse(yvar == "RR", "br", "ve"),
+            y = ifelse(yvar == "RR", "RR", "VE"),
+            id = "id",
+            data_type = "nest",
+            loa_calc = "blandaltman"
+        )
+        
+        model <- rmcorr::rmcorr(
+            participant = "id",
+            measure1 = ifelse(yvar == "RR", "br", "ve"),
+            measure2 = ifelse(yvar == "RR", "RR", "VE"),
+            dataset = .df
+        )
+    
+        tibble(
+            measure = yvar,
+            smooth = .df$smooth[1L],
+            bias = agree_table$loa$bias,
+            loa.lower = agree_table$loa$lower_loa,
+            loa.upper = agree_table$loa$upper_loa,
+            r = model$r,
+            r.lower = model$CI[1],
+            r.upper = model$CI[2],
+        )
+    }) |> 
+        list_rbind()
+}) |>
+    list_rbind() |>
+    mutate(
+        measure = factor(
+            measure,
+            levels = yvars,
+            labels = c("Ventilation (L/min)", "respiratory frequency (breaths/min)")
+        ),
+        smooth = factor(
+            smooth,
+            levels = rev(levels(df$smooth))
+        ),
+    )
+
+rmplot <- ggplot(agree_df, aes(x = smooth, colour = measure)) +
+    labs(
+        subtitle = "Effect on repeated measures correlation",
+        x = NULL
+    ) +
+    theme(panel.grid.major.x = element_line()) +
+    scale_colour_discrete(name = NULL) +
+    coord_flip(ylim = c(NA, 1)) +
+    scale_y_continuous(
+        name = "rmcorr [95% CI]",
+        expand = expansion(c(0.03, 0))
+    ) +
+    geom_hline(yintercept = 1, linetype = "dotted") +
+    geom_vline(xintercept = c(4.5, 8.5), linetype = "dotted") +
+    geom_errorbar(aes(ymin = r.lower, ymax = r.upper), width = 0.3) +
+    geom_point(aes(y = r), fill = "white", shape = 21, stroke = 1)
+
+baplot <- ggplot(agree_df, aes(x = smooth, colour = measure)) +
+    labs(
+        subtitle = "Effect on Bland-Altman Mean Bias ± Limits of Agreement",
+        x = NULL
+    ) +
+    theme(panel.grid.major.x = element_line()) +
+    scale_colour_discrete(name = NULL) +
+    coord_flip() +
+    scale_y_continuous(
+        name = "Mean Bias [95% LoA]",
+        expand = expansion(c(0.03, 0))
+    ) +
+    geom_hline(yintercept = 0, linetype = "dotted") +
+    geom_vline(xintercept = c(4.5, 8.5), linetype = "dotted") +
+    geom_errorbar(aes(ymin = loa.lower, ymax = loa.upper), width = 0.3) +
+    geom_point(aes(y = bias), fill = "white", shape = 21, stroke = 1)
+
+ggarrange(
+    rmplot,
+    baplot,
+    nrow = 2,
+    common.legend = TRUE
+) |>
+    annotate_figure(
+        top = text_grob(
+            paste(
+                "Sensitivity Analysis for Smooth Levels",
+                "width = n breaths; span & bin = n seconds",
+                sep = "\n"
+            ),
+            size = 17,
+            face = "bold"
+        )
+    )
+```
+
+
+
+
+
+## Figure 2: Repeated-measures correlation
+
+### RR
+
+```{r}
+#| label: rmcorr-RR
+
+## naive correlation test
+tar_read(cor_fit_RR)
+
+## ICC
+tar_read(icc_fit_RR)
+
+tar_read(rmcorr_fit_RR)
+```
+
+
+### VE
+
+```{r}
+#| label: rmcorr-VE
+
+## naive correlation test
+tar_read(cor_fit_VE)
+
+## ICC
+tar_read(icc_fit_VE)
+
+tar_read(rmcorr_fit_VE)
+```
+
+
+### VE (four participants excluded)
+
+```{r}
+#| label: rmcorr-VE_excl
+
+## naive correlation test
+tar_read(cor_fit_VE_excl)
+
+## ICC
+tar_read(icc_fit_VE_excl)
+
+tar_read(rmcorr_fit_VE_excl)
+```
+
+```{r}
+#| label: rmcorr-plot
+#| code-summary: "Show figure code"
+
+ggarrange(
+    tar_read(rmcorr_plot_RR),
+    tar_read(rmcorr_plot_VE_excl),
+    nrow = 1,
+    ncol = 2,
+    labels = c("A", "B"),
+    vjust = 1,
+    font.label = list(size = 24)
+)
+```
+
+
+
+
+
+
+## Figure 3: Agreement
+
+### RR
+
+```{r}
+#| label: bland-altman-RR
+
+tar_read(agree_fit_RR)
+
+tar_read(agree_log_fit_RR)
+```
+
+
+### VE
+
+* VE is fit with proportional bias, so the untransformed LoA table has one row
+per evaluation point — bias and limits at the minimum, mean, and maximum of
+the mean of the two devices
+
+* The log-ratio fit below keeps a single flat bias.
+
+```{r}
+#| label: bland-altman-VE
+
+tar_read(agree_fit_VE)
+
+tar_read(agree_log_fit_VE)
+```
+
+
+### VE (four participants excluded)
+
+* As above, proportional bias gives one LoA row each at minimum, mean, and maximum; log-ratio keeps a single flat bias.
+
+```{r}
+#| label: bland-altman-VE_excl
+
+tar_read(agree_fit_VE_excl)
+```
+
+```{r}
+#| label: agreement-plot
+#| code-summary: "Show figure code"
+
+ggarrange(
+    tar_read(agree_plot_RR),
+    tar_read(agree_plot_VE_excl),
+    nrow = 1,
+    ncol = 2,
+    labels = c("A", "B"),
+    vjust = 1,
+    font.label = list(size = 24)
+)
+```
+
+
+
+
+
+## Figure 4: Effect of cycling position
+
+* Participants alternated between "upright" (UP) and "racing position" (RP): UP — RP — UP — RP — UP
+
+* Four participants excluded for VE only.
+
+```{r}
+#| label: cycling-position-plot
+#| code-summary: "Show figure code"
+
+ggarrange(
+    tar_read(pred_pos_plot_RR_pos) + rremove("x.title") + rremove("legend"),
+    tar_read(pred_pos_plot_VE_pos) + rremove("x.title"),
+    nrow = 1,
+    ncol = 2,
+    # common.legend = TRUE,
+    labels = c("A", "B"),
+    vjust = 1.1,
+    hjust = -1.7,
+    font.label = list(size = 24)
+) |>
+    annotate_figure(
+        bottom = text_grob("Time (mm:ss)", size = 16, face = "bold")
+    )
+```
+
+
+
+
+
+## Figure 5: Equivalence Testing — Device
+
+### RR
+
+```{r}
+#| label: equivalence-RR
+
+## mixed model of log RR
+summary(tar_read(eq_fit_RR)$model)
+
+## Tymewear vs Parvo mean log-ratio, TOST against ±3%
+tar_read(eq_fit_RR)$eq
+```
+
+### VE
+
+```{r}
+#| label: equivalence-VE
+
+## mixed model of log VE
+summary(tar_read(eq_fit_VE)$model)
+
+## Tymewear vs Parvo mean log-ratio, TOST against ±3%
+tar_read(eq_fit_VE)$eq
+```
+
+
+### VE (four participants excluded)
+
+```{r}
+#| label: equivalence-VE_excl
+
+## mixed model of log VE
+summary(tar_read(eq_fit_VE_excl)$model)
+
+## Tymewear vs Parvo mean log-ratio, TOST against ±3%
+tar_read(eq_fit_VE_excl)$eq
+```
+
+
+
+## Equivalence Testing — Body Position
+
+* racing versus upright position, with the device effect and its interaction
+retained in the model.
+
+* Four participants excluded for VE only.
+
+### RR
+
+```{r}
+#| label: equivalence-position-RR
+
+## mixed model of log RR
+summary(tar_read(eq_pos_fit_RR_pos)$model)
+
+## racing vs upright mean log-ratio, TOST against ±3%
+tar_read(eq_pos_fit_RR_pos)$eq
+```
+
+
+### VE
+
+```{r}
+#| label: equivalence-position-VE
+
+## mixed model of log VE
+summary(tar_read(eq_pos_fit_VE_pos)$model)
+
+## racing vs upright mean log-ratio, TOST against ±3%
+tar_read(eq_pos_fit_VE_pos)$eq
+```
+
+```{r}
+#| label: equivalence-plot
+#| fig-asp: 0.667
+
+eq_RR <- tar_read(eq_fit_RR)$eq
+eq_VE <- tar_read(eq_fit_VE_excl)$eq
+eq_RR_pos <- tar_read(eq_pos_fit_RR_pos)$eq
+eq_VE_pos <- tar_read(eq_pos_fit_VE_pos)$eq
+
+## estimates, CIs and point styling for device and body-position equivalence
+obs_df <- bind_rows(eq_RR, eq_VE, eq_RR_pos, eq_VE_pos) |>
+    mutate(
+        across(c(estimate, conf.low, conf.high), \(.x) .x * 100),
+        y = c(3, 2.5, 1, 0.5),
+        label = rep(
+            c("bold(italic('f')['R'])", "bold(dot(V)['E'])"),
+            2
+        ),
+        shape = c(19, 19, 17, 17),
+        size = c(4, 4, 4.5, 4.5),
+        hjust = c(0.8, 0.5, 0.5, 0.5),
+    )
+
+ggplot(obs_df, aes(x = estimate, y = y)) +
+    theme(
+        legend.position = "none",
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid.major.x = element_line(colour = "grey90", linewidth = 0.5),
+        plot.margin = margin(5, 5, 2, 5, unit = "mm"),
+    ) +
+    coord_cartesian(xlim = c(-10, 30), ylim = c(0, 4.25)) +
+    scale_x_continuous(
+        name = "Log Symmetric Differences (%)",
+        breaks = c(-10, -3, 3, seq(0, 30, 10)),
+        expand = expansion(0),
+    ) +
+    scale_y_continuous(expand = expansion(0)) +
+    annotate(
+        "rect",
+        xmin = -3,
+        xmax = 3,
+        ymin = -Inf,
+        ymax = Inf,
+        fill = "#42B540FF",
+        alpha = 0.5,
+    ) +
+    geom_vline(
+        xintercept = c(-3, 0, 3),
+        linetype = c("dashed", "solid", "dashed")
+    ) +
+    geom_errorbar(
+        aes(xmin = conf.low, xmax = conf.high),
+        linewidth = 1,
+        width = 0.15
+    ) +
+    geom_point(shape = obs_df$shape, size = obs_df$size) +
+    geom_text(
+        aes(label = label, hjust = hjust),
+        vjust = -1,
+        size = 7,
+        parse = TRUE
+    ) +
+    annotate(
+        "segment",
+        x = -9,
+        xend = 29,
+        y = c(4, 2),
+        linewidth = 0.7
+    ) +
+    annotate(
+        "label",
+        x = 10,
+        y = c(4, 2),
+        size = 7,
+        label = c(
+            "Equivalence between devices",
+            "Equivalence for effect of cycling position"
+        ),
+    )
+```
+
+
+```{r}
+#| label: session-info
+#| code-summary: "Show sessionInfo()"
+#| collapse: true
+
+sessionInfo()
+```
