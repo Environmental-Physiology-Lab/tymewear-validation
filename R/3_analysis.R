@@ -42,7 +42,7 @@ create_device_long <- function(df) {
 
 
 ## drop participants whose chest strap required shortening
-filter_outliers <- function(df, exclude = FALSE) {
+filter_excluded_ids <- function(df, exclude = FALSE) {
     if (exclude) {
         filter_out(df, id %in% exclude_ids)
     } else {
@@ -86,7 +86,7 @@ fit_agreement <- function(df, yvar = c("RR", "VE"), log_tf = FALSE) {
 
 
 ## TOST equivalence of a contrast against +/-3% log-ratio bounds
-## (van Hooren et al 2023). lme4 does not data-mask, so build formula by name
+## (van Hooren et al 2023), 90% CI matching TOST at alpha = 0.05. lme4 does not data-mask, so build formula by name
 ## contrast = "device" tests Tymewear vs Parvo; "position" tests RP vs UP with
 ## the device effect and its interaction held in the model
 fit_equivalence <- function(
@@ -112,6 +112,7 @@ fit_equivalence <- function(
         eq <- marginaleffects::avg_comparisons(
             model,
             variables = "device",
+            conf_level = 0.90,
             equivalence = c(-bound, bound)
         )
     } else {
@@ -128,6 +129,7 @@ fit_equivalence <- function(
             variables = "position",
             by = "device",
             hypothesis = ~reference,
+            conf_level = 0.90,
             equivalence = c(-bound, bound)
         )
     }

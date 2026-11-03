@@ -30,19 +30,18 @@ create_combined_data <- function(
     ## manual time sync correction for tymewear drift
     if (id == "BP17") {
         start_time <- min(parvo_data$timestamp)
+        ## per-stage offsets (s) at elapsed minutes; linear ramp between stages
+        ## keeps timestamps monotone so rolling join has no holes or overlaps
+        knots <- tibble(
+            elapsed = c(22, 31, 35.6, 41.5, 45, 51.5, 56.1, 62.6, 67.8, 74.3),
+            offset = rep(c(101, 80, 71, 49, 45), each = 2)
+        )
 
         tyme_data <- tyme_data |>
             mutate(
                 elapsed = as.numeric(timestamp - start_time, units = "mins"),
                 timestamp = timestamp +
-                    case_when(
-                        between(elapsed, 22, 31) ~ 101,
-                        between(elapsed, 35.6, 41.5) ~ 80,
-                        between(elapsed, 45, 51.5) ~ 71,
-                        between(elapsed, 56.1, 62.6) ~ 49,
-                        between(elapsed, 67.8, 74.3) ~ 45,
-                        .default = 0
-                    ),
+                    approx(knots$elapsed, knots$offset, elapsed, rule = 2)$y,
                 elapsed = NULL
             )
     } else if (id == "BP10") {
@@ -57,15 +56,22 @@ create_combined_data <- function(
 
     ## convert to data.table and set keys for rolling join
     parvo_dt <- as.data.table(parvo_data)
-    tyme_dt <- as.data.table(tyme_data)
+    tyme_dt <- as.data.table(tyme_data)[, tyme_timestamp := timestamp]
     setkey(parvo_dt, timestamp)
     setkey(tyme_dt, timestamp)
     ## rolling join, find nearest match by bxb sample
     combined_data <- tyme_dt[parvo_dt, roll = "nearest"] |>
         arrange(timestamp) |>
-        mutate(time = as.numeric(timestamp - timestamp[1L])) |>
+        mutate(
+            time = as.numeric(timestamp - timestamp[1L]),
+            ## nearest match repeats one tyme breath across gaps; reject
+            ## matches further than a plausible breath so they interpolate later
+            across(c(br, ve, vt), \(.x) {
+                replace(.x, abs(as.numeric(tyme_timestamp - timestamp)) > 5, NA)
+            })
+        ) |>
         relocate(time) |>
-        select(-timestamp)
+        select(-timestamp, -tyme_timestamp)
 
     ## manual outlier rejection for one participant Parvo data
     if (id == "TW06") {
@@ -85,26 +91,31 @@ create_combined_data <- function(
 ## return data frame with all stages of cross-correlation matched BxB,
 ## optionally smoothed to a single named level
 create_long_data <- function(
-    id = "TW01",
-    parvo_events = targets::tar_read(parvo_events_BP17),
-    combined_data = targets::tar_read(combined_data_BP17),
+    id = "TW04",
+    parvo_events = targets::tar_read(parvo_events_TW04),
+    combined_data = targets::tar_read(combined_data_TW04),
     ## single named smoothing level, e.g. c(width = 1), c(span = 5), c(bin = 15)
     ## NULL returns unsmoothed BxB
     smooth = NULL
 ) {
     span <- c(-360, 120)
 
-    purrr::imap(parvo_events$time, \(t_end, .i) {
+    long_data <- purrr::imap(parvo_events$time, \(t_end, .i) {
         df <- combined_data |>
             ## select target interval range WITH ONSET & REC KINETICS
             filter(between(time, t_end + span[1L], t_end + span[2L])) |>
-            ## global outlier detection on errant breaths
+            ## parvo outlier detection on errant breaths
             mnirs::replace_mnirs(
-                nirs_channels = c(br, ve, vt, RR, VE, Vt, VO2kg),
+                nirs_channels = c(RR, VE, Vt, VO2kg),
                 time_channel = time,
                 outlier_cutoff = 3,
                 span = 30,
                 method = "median"
+            ) |>
+            ## linear interpolate missing tymewear data
+            mnirs::replace_mnirs(
+                nirs_channels = c(br, vt, ve),
+                method = "linear"
             )
 
         ## cross-correlation bxb alignment (signed lag: +lag / -lead)
@@ -166,4 +177,6 @@ create_long_data <- function(
     }) |>
         ## create single data frame for all participant samples
         purrr::list_rbind()
+
+    return(long_data)
 }

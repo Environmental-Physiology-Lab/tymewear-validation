@@ -1,6 +1,6 @@
 ---
-title: Tymewear-repository
-subtitile: Report of Results & Figures
+title: Tymewear-results
+subtitle: Report of Results & Figures
 author:
     name: Jem I Arnold [{{< fa brands github >}}](https://github.com/jemarnold/mnirs){target=\"_blank\"} [{{< fa brands linkedin >}}](https://www.linkedin.com/in/jem--arnold/){target=\"_blank\"} [{{< ai researchgate >}}](https://researchgate.net/profile/Jem-Arnold){target=\"_blank\"} [{{< ai orcid >}}](https://orcid.org/0000-0003-3908-9447){target=\"_blank\"}
     email: jem@jemarnold.ca
@@ -9,25 +9,22 @@ author:
 date: last-modified
 format:
     html:
-        self-contained: true
+        embed-resources: true
         toc: true
         code-fold: true
-        other-links: 
-            - text: Github 
-              href: temp
-            - text: OSF
-              href: temp
+        fig-width: 8.66
+        fig-align: center
+        fig-dpi: 300
 execute:
     echo: true
     message: false
     warning: false
-    dpi: 300
-    fig-width: 8.66
-    fig-asp: 0.5
-    fig-align: center
-    out-width: "100%"
 knitr:
-    opts_chunk: 
+    opts_chunk:
+        collapse: true
+        comment: "#>"
+        fig.asp: 0.5
+        out.width: "100%"
         fig.path: "figures/"
 ---
 
@@ -44,9 +41,6 @@ library(ggpubr)
 library(mnirs)
 
 theme_set(theme_mnirs())
-
-## manuscript figures are written outside this repository
-fig_path <- file.path(Sys.getenv("UBC_PATH"), "Tymewear", "Figures")
 ```
 
 ::: {.callout-note}
@@ -54,7 +48,7 @@ fig_path <- file.path(Sys.getenv("UBC_PATH"), "Tymewear", "Figures")
 
 * Breath-by-breath time-series synchronised with cross-correlation for each interval.
 
-* Local outliers removed with 30-sec rolling window.
+* Local outliers removed **from Parvo** with 30-sec rolling window.
 
 * Smooth/binning method: **bin = 10** sec.
 

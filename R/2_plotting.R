@@ -5,7 +5,7 @@ geom_line <- \(...) ggplot2::geom_line(na.rm = TRUE, ...)
 ## opaque points over gridlines: outlined ring, white knockout, translucent fill
 ## mapping = NULL inherits the plot-level fill aesthetic
 geom_point_stack <- function(mapping = NULL, sizes = c(1.4, 1.2, 2)) {
-    return(list(
+    list(
         geom_point(fill = "white", size = sizes[1], shape = 21, stroke = 1),
         geom_point(colour = "white", size = sizes[2]),
         geom_point(
@@ -15,17 +15,16 @@ geom_point_stack <- function(mapping = NULL, sizes = c(1.4, 1.2, 2)) {
             stroke = 0,
             alpha = 0.6
         )
-    ))
+    )
 }
 
 ## axis title with plotmath units, e.g. "Parvo VE (L·min^-1)"
 ## text is split on spaces so plotmath treats each word as a separate token
+# fmt: skip
 axis_label <- function(text, unit) {
-    parse(
-        text = str_glue(
-            "bold({str_replace_all(text, ' ', '~')}~'('*{unit}*')')"
-        )
-    )
+    parse(text = str_glue(
+        "bold({str_replace_all(text, ' ', '~')}~'('*{unit}*')')"
+    ))
 }
 
 ## common plot settings
@@ -229,13 +228,13 @@ eq_fills <- c(
 
 ## decision regions bounded by the equivalence limit b
 eq_regions <- function(b) {
-    return(tribble(
+    tribble(
         ~xmin , ~xmax , ~ymin , ~ymax , ~fill             ,
         -b    , Inf   ,     2 ,     3 , "Non-inferiority" ,
         -b    , b     ,     1 ,     2 , "Equivalence"     ,
         -Inf  ,     0 ,     0 ,     1 , "Inferiority"     ,
             0 , Inf   ,     0 ,     1 , "Superiority"
-    ))
+    )
 }
 
 ## beeswarm & interval markers, repeated across the equivalence plots
@@ -290,7 +289,7 @@ plot_descriptive <- function(
         )
     }
 
-    p <- filter(df, stage == 4) |>
+    filter(df, stage == 4) |>
         ggplot(aes(time)) +
         facet_wrap(~id) +
         labs(x = "Time (mm:ss)", y = ylab) +
@@ -323,8 +322,6 @@ plot_descriptive <- function(
             linewidth = 0.5
         ) +
         geom_line(aes(y = .data[[yvar]], colour = "Parvo"), linewidth = 0.5)
-
-    return(p)
 }
 
 
@@ -347,7 +344,7 @@ plot_rmcorr <- function(
         p = mnirs:::signif_pvalue(fit$p)
     )
 
-    p <- ggplot(data, aes(x = Measure1, y = Measure2, fill = Participant)) +
+    ggplot(data, aes(x = Measure1, y = Measure2, fill = Participant)) +
         mnirs::theme_mnirs() +
         theme(
             legend.position = "none",
@@ -383,8 +380,6 @@ plot_rmcorr <- function(
             hjust = -0.015,
             vjust = 1
         )
-
-    return(p)
 }
 
 
@@ -415,14 +410,12 @@ plot_agreement <- function(
             ## a minus glyph. The value stays a quoted literal to keep the
             ## trailing zeros from signif_trailing(), with the sign split out in
             ## front of it so plotmath treats it as an operator, not text.
+            # fmt: skip
             label_expr = str_replace(
                 str_glue(
                     "'{mnirs:::signif_trailing(y, params$loa_digits)}'",
                     "~{vars$unit_small}"
-                ),
-                "^'-",
-                "-'"
-            )
+                ), "^'-", "-'")
         )
 
     ## spread flat limits across the x-range so both cases draw as labelled
@@ -481,14 +474,14 @@ plot_agreement <- function(
         ) +
         scale_x_continuous(
             name = axis_label(
-                str_glue("Means of {params$ylab}"),
+                str_glue("{params$ylab} Means"),
                 vars$unit_tyme
             ),
             breaks = scales::breaks_pretty(n = 5)
         ) +
         scale_y_continuous(
             name = axis_label(
-                str_glue("Differences between {params$ylab}"),
+                str_glue("{params$ylab} Differences"),
                 vars$unit_tyme
             ),
             breaks = scales::breaks_pretty(n = 7)
@@ -554,21 +547,18 @@ plot_equivalence <- function(
     }
 
     title <- if (by_position) {
+        # fmt: skip
         expression(paste(
-            bold("racing"),
-            " vs reference ",
-            bold("upright"),
-            " position"
+            bold("racing"), " vs reference ", bold("upright"), " position"
         ))
     } else {
+        # fmt: skip
         expression(paste(
-            bold("Tymewear"),
-            " vs criterion ",
-            bold("ParvoMedics")
+            bold("Tymewear"), " vs criterion ", bold("ParvoMedics")
         ))
     }
 
-    p <- ggplot() +
+    ggplot() +
         mnirs::theme_mnirs() +
         labs(
             title = title,
@@ -625,8 +615,6 @@ plot_equivalence <- function(
             width = 0.1
         ) +
         geom_point(aes(x = 100 * eq$estimate, y = 1.5), size = 1)
-
-    return(p)
 }
 
 
@@ -642,7 +630,7 @@ plot_position <- function(
     vars <- analysis_vars[[params$yvar]]
 
     ## random effects held at their modes, giving population-level curves
-    pred <- marginaleffects::predictions(
+    pred <- tibble(marginaleffects::predictions(
         fit$model,
         newdata = marginaleffects::datagrid(
             model = fit$model,
@@ -651,10 +639,9 @@ plot_position <- function(
             device = unique
         ),
         transform = exp
-    ) |>
-        tibble()
+    ))
 
-    p <- ggplot(pred, aes(x = time, y = estimate)) +
+    ggplot(pred, aes(x = time, y = estimate)) +
         aes(colour = device, fill = device, linetype = position) +
         labs(subtitle = "", linetype = NULL) +
         theme(
@@ -712,6 +699,4 @@ plot_position <- function(
             show.legend = FALSE
         ) +
         geom_line(linewidth = 0.9)
-
-    return(p)
 }
